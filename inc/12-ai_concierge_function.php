@@ -3226,6 +3226,370 @@ class GI_Emotion_Analyzer {
             return 'professional';
         }
     }
+    
+    /**
+     * チャットメッセージ処理（セクション検索から呼び出される）
+     */
+    public function process_chat_message($params) {
+        try {
+            $message = $params['message'] ?? '';
+            $session_id = $params['session_id'] ?? '';
+            $conversation_history = $params['conversation_history'] ?? [];
+            $user_id = $params['user_id'] ?? 0;
+            $context = $params['context'] ?? [];
+            
+            if (empty($message)) {
+                return [
+                    'success' => false,
+                    'error' => 'メッセージが空です'
+                ];
+            }
+            
+            // インテント分析
+            $intent = $this->analyze_intent($message);
+            
+            // 感情分析
+            if ($this->settings['enable_emotion_analysis']) {
+                $emotion = $this->emotion_analyzer->analyze($message);
+            } else {
+                $emotion = ['score' => 0, 'urgency' => 0, 'emotion' => 'neutral'];
+            }
+            
+            // レート制限チェック
+            if (!$this->check_rate_limit($user_id, $session_id)) {
+                return [
+                    'success' => false,
+                    'error' => 'リクエストが多すぎます。しばらくお待ちください。'
+                ];
+            }
+            
+            // AI応答生成
+            $response = $this->generate_ai_response($message, $context, $conversation_history, $intent, $emotion);
+            
+            // 会話履歴を保存
+            $this->save_conversation_history($session_id, $user_id, $message, $response, $intent, $emotion);
+            
+            // 学習システムに記録
+            if ($this->settings['enable_learning_system']) {
+                $this->learning_system->record_interaction($message, $response, $intent);
+            }
+            
+            return [
+                'success' => true,
+                'data' => [
+                    'response' => $response,
+                    'message_id' => uniqid('msg_'),
+                    'session_id' => $session_id,
+                    'suggestions' => $this->generate_suggestions($intent, $context),
+                    'related_grants' => $this->find_related_grants($message, $intent)
+                ]
+            ];
+            
+        } catch (Exception $e) {
+            error_log('AI Concierge Chat Error: ' . $e->getMessage());
+            return [
+                'success' => false,
+                'error' => 'システムエラーが発生しました'
+            ];
+        }
+    }
+    
+    /**
+     * セマンティック検索実行
+     */
+    public function perform_semantic_search($query, $options = []) {
+        try {
+            // 基本的なセマンティック検索実装
+            $filter = $options['filter'] ?? 'all';
+            $user_context = $options['user_context'] ?? [];
+            $session_id = $options['session_id'] ?? '';
+            
+            // インテント分析
+            $intent = $this->analyze_intent($query);
+            
+            // 検索クエリの拡張
+            $expanded_query = $this->expand_search_query($query, $intent);
+            
+            // WordPressクエリの構築
+            $args = [
+                'post_type' => 'grant',
+                's' => $expanded_query,
+                'posts_per_page' => 12,
+                'post_status' => 'publish',
+                'orderby' => 'relevance',
+                'order' => 'DESC'
+            ];
+            
+            // フィルター適用
+            if ($filter !== 'all') {
+                $args['tax_query'] = [[
+                    'taxonomy' => 'grant_category',
+                    'field' => 'slug',
+                    'terms' => $filter
+                ]];
+            }
+            
+            // クエリ実行
+            $wp_query = new WP_Query($args);
+            $grants = [];
+            
+            if ($wp_query->have_posts()) {
+                while ($wp_query->have_posts()) {
+                    $wp_query->the_post();
+                    $post_id = get_the_ID();
+                    
+                    // カードHTMLを生成
+                    if (function_exists('gi_render_card_unified')) {
+                        $html = gi_render_card_unified($post_id, 'grid');
+                    } else {
+                        $html = $this->render_fallback_card($post_id);
+                    }
+                    
+                    $grants[] = [
+                        'id' => $post_id,
+                        'title' => get_the_title(),
+                        'permalink' => get_permalink(),
+                        'html' => $html
+                    ];
+                }
+                wp_reset_postdata();
+            }
+            
+            return [
+                'success' => true,
+                'data' => [
+                    'grants' => $grants,
+                    'count' => $wp_query->found_posts,
+                    'ai_response' => $this->generate_search_response($query, count($grants)),
+                    'suggestions' => $this->generate_search_suggestions($query)
+                ]
+            ];
+            
+        } catch (Exception $e) {
+            error_log('Semantic Search Error: ' . $e->getMessage());
+            return [
+                'success' => false,
+                'error' => '検索エラーが発生しました'
+            ];
+        }
+    }
+    
+    /**
+     * 音声テキスト変換
+     */
+    public function transcribe_audio($audio_file) {
+        try {
+            // OpenAI Whisper APIを使用した音声認識の実装
+            // 実際のAPIキーが設定されている場合のみ実行
+            $api_key = $this->settings['openai_api_key'] ?? '';
+            
+            if (empty($api_key)) {
+                return [
+                    'success' => false,
+                    'error' => 'APIキーが設定されていません'
+                ];
+            }
+            
+            // 音声ファイルの検証
+            if (!isset($audio_file['tmp_name']) || !file_exists($audio_file['tmp_name'])) {
+                return [
+                    'success' => false,
+                    'error' => '音声ファイルが見つかりません'
+                ];
+            }
+            
+            // OpenAI Whisper APIへのリクエスト
+            $response = wp_remote_post('https://api.openai.com/v1/audio/transcriptions', [
+                'headers' => [
+                    'Authorization' => 'Bearer ' . $api_key,
+                ],
+                'body' => [
+                    'file' => curl_file_create($audio_file['tmp_name'], $audio_file['type']),
+                    'model' => 'whisper-1',
+                    'language' => 'ja'
+                ],
+                'timeout' => 30
+            ]);
+            
+            if (is_wp_error($response)) {
+                return [
+                    'success' => false,
+                    'error' => '音声認識APIへの接続に失敗しました'
+                ];
+            }
+            
+            $body = wp_remote_retrieve_body($response);
+            $data = json_decode($body, true);
+            
+            if (isset($data['text'])) {
+                return [
+                    'success' => true,
+                    'text' => $data['text'],
+                    'confidence' => 0.95 // Whisperは信頼度を返さないので固定値
+                ];
+            } else {
+                return [
+                    'success' => false,
+                    'error' => '音声認識に失敗しました'
+                ];
+            }
+            
+        } catch (Exception $e) {
+            error_log('Audio Transcription Error: ' . $e->getMessage());
+            return [
+                'success' => false,
+                'error' => '音声処理エラーが発生しました'
+            ];
+        }
+    }
+    
+    /**
+     * 検索クエリの拡張
+     */
+    private function expand_search_query($query, $intent) {
+        $expansions = [
+            'it' => ['IT導入', 'デジタル化', 'システム導入', 'ソフトウェア'],
+            'manufacturing' => ['ものづくり', '製造業', '設備投資', '機械導入'],
+            'startup' => ['創業', '起業', '新規事業', 'スタートアップ'],
+            'employment' => ['雇用', '採用', '人材確保', '労働者'],
+            'sustainability' => ['持続化', '事業継続', '経営安定']
+        ];
+        
+        $intent_key = $intent['intent'] ?? 'general';
+        if (isset($expansions[$intent_key])) {
+            $additional_terms = implode(' ', $expansions[$intent_key]);
+            return $query . ' ' . $additional_terms;
+        }
+        
+        return $query;
+    }
+    
+    /**
+     * 検索応答生成
+     */
+    private function generate_search_response($query, $count) {
+        if ($count === 0) {
+            return "「{$query}」に該当する補助金が見つかりませんでした。キーワードを変更して再度検索してみてください。";
+        } elseif ($count === 1) {
+            return "「{$query}」について1件の補助金が見つかりました。詳細をご確認ください。";
+        } else {
+            return "「{$query}」について{$count}件の補助金が見つかりました。条件に合うものをお選びください。";
+        }
+    }
+    
+    /**
+     * 検索候補生成
+     */
+    private function generate_search_suggestions($query) {
+        return [
+            $query . ' 申請方法',
+            $query . ' 必要書類',
+            $query . ' 採択率',
+            $query . ' 締切'
+        ];
+    }
+    
+    /**
+     * 提案生成
+     */
+    private function generate_suggestions($intent, $context) {
+        $base_suggestions = [
+            '申請の流れを教えて',
+            '必要書類は何ですか？',
+            '採択率の高い補助金は？',
+            '締切が近い補助金を教えて'
+        ];
+        
+        $intent_key = $intent['intent'] ?? 'general';
+        $intent_suggestions = [
+            'it' => ['IT導入補助金について', 'デジタル化支援は？'],
+            'manufacturing' => ['ものづくり補助金について', '設備投資支援は？'],
+            'startup' => ['創業支援制度は？', '起業家向け補助金は？']
+        ];
+        
+        if (isset($intent_suggestions[$intent_key])) {
+            return array_merge($intent_suggestions[$intent_key], array_slice($base_suggestions, 0, 2));
+        }
+        
+        return array_slice($base_suggestions, 0, 4);
+    }
+    
+    /**
+     * 関連補助金検索
+     */
+    private function find_related_grants($message, $intent) {
+        $args = [
+            'post_type' => 'grant',
+            's' => $message,
+            'posts_per_page' => 3,
+            'post_status' => 'publish'
+        ];
+        
+        $query = new WP_Query($args);
+        $grants = [];
+        
+        if ($query->have_posts()) {
+            while ($query->have_posts()) {
+                $query->the_post();
+                $grants[] = [
+                    'id' => get_the_ID(),
+                    'title' => get_the_title(),
+                    'permalink' => get_permalink(),
+                    'html' => function_exists('gi_render_card_unified') ? 
+                             gi_render_card_unified(get_the_ID(), 'grid') : 
+                             $this->render_fallback_card(get_the_ID())
+                ];
+            }
+            wp_reset_postdata();
+        }
+        
+        return $grants;
+    }
+    
+    /**
+     * フォールバックカード表示
+     */
+    private function render_fallback_card($post_id) {
+        $title = get_the_title($post_id);
+        $permalink = get_permalink($post_id);
+        $excerpt = get_the_excerpt($post_id);
+        
+        return "
+        <div class='grant-card fallback-card' data-post-id='{$post_id}'>
+            <h3><a href='{$permalink}'>{$title}</a></h3>
+            <p>{$excerpt}</p>
+            <a href='{$permalink}' class='read-more'>詳細を見る</a>
+        </div>";
+    }
+    
+    /**
+     * 会話履歴の保存
+     */
+    private function save_conversation_history($session_id, $user_id, $user_message, $ai_response, $intent, $emotion) {
+        global $wpdb;
+        
+        $table = $wpdb->prefix . 'gi_ai_conversations';
+        
+        // ユーザーメッセージを保存
+        $wpdb->insert($table, [
+            'session_id' => $session_id,
+            'user_id' => $user_id,
+            'message_type' => 'user',
+            'message' => $user_message,
+            'context' => wp_json_encode(['intent' => $intent, 'emotion' => $emotion]),
+            'created_at' => current_time('mysql')
+        ]);
+        
+        // AI応答を保存
+        $wpdb->insert($table, [
+            'session_id' => $session_id,
+            'user_id' => $user_id,
+            'message_type' => 'assistant',
+            'message' => $ai_response,
+            'context' => wp_json_encode(['intent' => $intent]),
+            'created_at' => current_time('mysql')
+        ]);
+    }
 }
 
 /**

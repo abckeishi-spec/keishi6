@@ -972,6 +972,7 @@ function gi_ajax_toggle_favorite() {
         'favorites_list' => $favorites,
     ]);
 }
+// Register both action names for compatibility
 add_action('wp_ajax_gi_toggle_favorite', 'gi_ajax_toggle_favorite');
 add_action('wp_ajax_nopriv_gi_toggle_favorite', 'gi_ajax_toggle_favorite');
 add_action('wp_ajax_toggle_favorite', 'gi_ajax_toggle_favorite');
@@ -1612,4 +1613,261 @@ if (defined('WP_DEBUG') && WP_DEBUG) {
     add_action('wp_ajax_gi_load_grants', function() {
         gi_ajax_log_error('AJAX gi_load_grants called', $_POST);
     }, 1);
+}
+
+/**
+ * =============================================================================
+ * AI CONCIERGE INTEGRATION - MISSING AJAX HANDLERS
+ * =============================================================================
+ */
+
+/**
+ * AI Enhanced Search Handler
+ */
+function gi_handle_enhanced_ai_search() {
+    // Nonce verification
+    if (!wp_verify_nonce($_POST['nonce'] ?? '', 'gi_ajax_nonce')) {
+        wp_send_json_error('セキュリティチェックに失敗しました');
+    }
+
+    $query = sanitize_text_field($_POST['query'] ?? '');
+    $context = json_decode(stripslashes($_POST['context'] ?? '{}'), true) ?: [];
+    
+    if (empty($query)) {
+        wp_send_json_error('検索クエリが指定されていません');
+    }
+
+    try {
+        // AI Concierge integration
+        if (class_exists('GI_AI_Concierge')) {
+            $ai_concierge = GI_AI_Concierge::getInstance();
+            
+            $search_params = [
+                'query' => $query,
+                'context' => $context,
+                'user_preferences' => gi_get_user_context_safe()
+            ];
+            
+            $results = $ai_concierge->perform_semantic_search($search_params);
+            
+            if ($results && !empty($results['posts'])) {
+                wp_send_json_success([
+                    'results' => $results,
+                    'ai_suggestions' => $results['ai_suggestions'] ?? '',
+                    'search_insights' => $results['insights'] ?? []
+                ]);
+            }
+        }
+        
+        // Fallback to regular search if AI Concierge fails
+        $_POST['search'] = $query;
+        gi_ajax_load_grants(); // Use existing search function
+        
+    } catch (Exception $e) {
+        error_log('AI Enhanced Search Error: ' . $e->getMessage());
+        wp_send_json_error('AI検索処理でエラーが発生しました');
+    }
+}
+add_action('wp_ajax_gi_ai_search', 'gi_handle_enhanced_ai_search');
+add_action('wp_ajax_nopriv_gi_ai_search', 'gi_handle_enhanced_ai_search');
+
+/**
+ * Real AI Chat Handler
+ */
+function gi_handle_real_ai_chat() {
+    // Nonce verification
+    if (!wp_verify_nonce($_POST['nonce'] ?? '', 'gi_ajax_nonce')) {
+        wp_send_json_error('セキュリティチェックに失敗しました');
+    }
+
+    $message = sanitize_textarea_field($_POST['message'] ?? '');
+    $session_id = sanitize_text_field($_POST['session_id'] ?? '');
+    $conversation_history = json_decode(stripslashes($_POST['conversation_history'] ?? '[]'), true) ?: [];
+    
+    if (empty($message)) {
+        wp_send_json_error('メッセージが指定されていません');
+    }
+
+    try {
+        if (class_exists('GI_AI_Concierge')) {
+            $ai_concierge = GI_AI_Concierge::getInstance();
+            
+            $chat_params = [
+                'message' => $message,
+                'session_id' => $session_id,
+                'conversation_history' => $conversation_history,
+                'user_context' => gi_get_user_context_safe()
+            ];
+            
+            $response = $ai_concierge->process_chat_message($chat_params);
+            
+            if ($response && isset($response['response'])) {
+                wp_send_json_success([
+                    'response' => $response['response'],
+                    'suggestions' => $response['suggestions'] ?? [],
+                    'related_grants' => $response['related_grants'] ?? [],
+                    'session_id' => $response['session_id'] ?? $session_id
+                ]);
+            } else {
+                wp_send_json_error('AI応答の生成に失敗しました');
+            }
+        } else {
+            wp_send_json_error('AIコンシェルジュが利用できません');
+        }
+    } catch (Exception $e) {
+        error_log('AI Chat Error: ' . $e->getMessage());
+        wp_send_json_error('AIチャット処理でエラーが発生しました');
+    }
+}
+add_action('wp_ajax_gi_ai_chat', 'gi_handle_real_ai_chat');
+add_action('wp_ajax_nopriv_gi_ai_chat', 'gi_handle_real_ai_chat');
+
+/**
+ * Voice to Text Handler
+ */
+function gi_handle_voice_to_text() {
+    // Nonce verification
+    if (!wp_verify_nonce($_POST['nonce'] ?? '', 'gi_ajax_nonce')) {
+        wp_send_json_error('セキュリティチェックに失敗しました');
+    }
+
+    // Check for audio file upload
+    if (!isset($_FILES['audio']) || $_FILES['audio']['error'] !== UPLOAD_ERR_OK) {
+        wp_send_json_error('音声ファイルのアップロードに失敗しました');
+    }
+
+    try {
+        if (class_exists('GI_AI_Concierge')) {
+            $ai_concierge = GI_AI_Concierge::getInstance();
+            
+            $audio_file = $_FILES['audio'];
+            $transcription_params = [
+                'audio_file' => $audio_file,
+                'language' => 'ja',
+                'format' => 'text'
+            ];
+            
+            $transcription = $ai_concierge->transcribe_audio($transcription_params);
+            
+            if ($transcription && isset($transcription['text'])) {
+                wp_send_json_success([
+                    'text' => $transcription['text'],
+                    'confidence' => $transcription['confidence'] ?? 1.0,
+                    'language' => $transcription['language'] ?? 'ja'
+                ]);
+            } else {
+                wp_send_json_error('音声の文字起こしに失敗しました');
+            }
+        } else {
+            wp_send_json_error('音声認識機能が利用できません');
+        }
+    } catch (Exception $e) {
+        error_log('Voice to Text Error: ' . $e->getMessage());
+        wp_send_json_error('音声認識処理でエラーが発生しました');
+    }
+}
+add_action('wp_ajax_gi_voice_to_text', 'gi_handle_voice_to_text');
+add_action('wp_ajax_nopriv_gi_voice_to_text', 'gi_handle_voice_to_text');
+
+/**
+ * Save Search Session Handler
+ */
+function gi_save_search_session() {
+    // Nonce verification
+    if (!wp_verify_nonce($_POST['nonce'] ?? '', 'gi_ajax_nonce')) {
+        wp_send_json_error('セキュリティチェックに失敗しました');
+    }
+
+    $session_data = json_decode(stripslashes($_POST['session_data'] ?? '{}'), true) ?: [];
+    $session_id = sanitize_text_field($_POST['session_id'] ?? '');
+    
+    if (empty($session_data)) {
+        wp_send_json_error('セッションデータが指定されていません');
+    }
+
+    try {
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'gi_search_sessions';
+        
+        // Check if table exists
+        if ($wpdb->get_var("SHOW TABLES LIKE '{$table_name}'") !== $table_name) {
+            wp_send_json_error('データベーステーブルが存在しません');
+        }
+        
+        $user_id = get_current_user_id();
+        $session_data_json = wp_json_encode($session_data);
+        
+        if ($session_id) {
+            // Update existing session
+            $result = $wpdb->update(
+                $table_name,
+                [
+                    'session_data' => $session_data_json,
+                    'updated_at' => current_time('mysql')
+                ],
+                ['session_id' => $session_id],
+                ['%s', '%s'],
+                ['%s']
+            );
+        } else {
+            // Create new session
+            $session_id = 'gs_' . wp_generate_uuid4();
+            $result = $wpdb->insert(
+                $table_name,
+                [
+                    'session_id' => $session_id,
+                    'user_id' => $user_id,
+                    'session_data' => $session_data_json,
+                    'created_at' => current_time('mysql'),
+                    'updated_at' => current_time('mysql')
+                ],
+                ['%s', '%d', '%s', '%s', '%s']
+            );
+        }
+        
+        if ($result !== false) {
+            wp_send_json_success([
+                'session_id' => $session_id,
+                'saved' => true
+            ]);
+        } else {
+            wp_send_json_error('セッションの保存に失敗しました');
+        }
+        
+    } catch (Exception $e) {
+        error_log('Save Search Session Error: ' . $e->getMessage());
+        wp_send_json_error('セッション保存処理でエラーが発生しました');
+    }
+}
+add_action('wp_ajax_gi_save_search_session', 'gi_save_search_session');
+add_action('wp_ajax_nopriv_gi_save_search_session', 'gi_save_search_session');
+
+/**
+ * Helper function to get safe user context
+ */
+function gi_get_user_context_safe() {
+    $context = [];
+    
+    // Get user ID safely
+    $user_id = get_current_user_id();
+    if ($user_id) {
+        $context['user_id'] = $user_id;
+        $context['is_logged_in'] = true;
+    } else {
+        $context['user_id'] = 0;
+        $context['is_logged_in'] = false;
+    }
+    
+    // Get user favorites safely
+    if (function_exists('gi_get_user_favorites')) {
+        $context['favorites'] = gi_get_user_favorites($user_id);
+    } else {
+        $context['favorites'] = [];
+    }
+    
+    // Get browser info safely
+    $context['user_agent'] = $_SERVER['HTTP_USER_AGENT'] ?? '';
+    $context['timestamp'] = current_time('timestamp');
+    
+    return $context;
 }
