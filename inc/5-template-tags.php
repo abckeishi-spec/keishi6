@@ -29,7 +29,16 @@ function gi_render_grant_card($post_id, $view = 'grid') {
     setup_postdata($post);
     
     ob_start();
-    include(get_template_directory() . '/grant-card-v4-enhanced.php');
+    
+    // Use the existing unified template
+    $template_path = get_template_directory() . '/template-parts/grant-card-unified.php';
+    if (file_exists($template_path)) {
+        include($template_path);
+    } else {
+        // Fallback to basic card rendering
+        echo '<div class="grant-card-error">Template not found</div>';
+    }
+    
     $output = ob_get_clean();
     
     $post = $original_post;
