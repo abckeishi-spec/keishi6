@@ -195,27 +195,27 @@ function gi_breadcrumbs() {
     if (is_front_page()) return;
     
     echo '<nav class="breadcrumbs">';
-    echo '<a href="' . home_url() . '">ホーム</a>';
+    echo '<a href="' . esc_url(home_url()) . '">ホーム</a>';
     
     if (is_post_type_archive('grant')) {
         echo ' > 助成金・補助金一覧';
     } elseif (is_tax('grant_category')) {
-        echo ' > <a href="' . get_post_type_archive_link('grant') . '">助成金・補助金一覧</a>';
-        echo ' > ' . single_term_title('', false);
+        echo ' > <a href="' . esc_url(get_post_type_archive_link('grant')) . '">助成金・補助金一覧</a>';
+        echo ' > ' . esc_html(single_term_title('', false));
     } elseif (is_tax('grant_prefecture')) {
-        echo ' > <a href="' . get_post_type_archive_link('grant') . '">助成金・補助金一覧</a>';
-        echo ' > ' . single_term_title('', false);
+        echo ' > <a href="' . esc_url(get_post_type_archive_link('grant')) . '">助成金・補助金一覧</a>';
+        echo ' > ' . esc_html(single_term_title('', false));
     } elseif (is_singular('grant')) {
-        echo ' > <a href="' . get_post_type_archive_link('grant') . '">助成金・補助金一覧</a>';
-        echo ' > ' . get_the_title();
+        echo ' > <a href="' . esc_url(get_post_type_archive_link('grant')) . '">助成金・補助金一覧</a>';
+        echo ' > ' . esc_html(get_the_title());
     } elseif (is_page()) {
-        echo ' > ' . get_the_title();
+        echo ' > ' . esc_html(get_the_title());
     } elseif (is_single()) {
         $categories = get_the_category();
         if ($categories) {
-            echo ' > <a href="' . get_category_link($categories[0]->term_id) . '">' . $categories[0]->name . '</a>';
+            echo ' > <a href="' . esc_url(get_category_link($categories[0]->term_id)) . '">' . esc_html($categories[0]->name) . '</a>';
         }
-        echo ' > ' . get_the_title();
+        echo ' > ' . esc_html(get_the_title());
     }
     
     echo '</nav>';

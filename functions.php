@@ -69,10 +69,11 @@ function gi_create_database_tables() {
         id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
         session_id varchar(255) NOT NULL,
         user_id bigint(20) unsigned DEFAULT NULL,
-        search_data longtext DEFAULT NULL,
+        session_data longtext DEFAULT NULL,
+        updated_at timestamp DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         created_at timestamp DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY (id),
-        KEY session_id (session_id),
+        UNIQUE KEY session_id (session_id),
         KEY user_id (user_id),
         KEY created_at (created_at)
     ) $charset_collate;";
@@ -529,6 +530,53 @@ function gi_theme_activation_check() {
     }
 }
 add_action('after_setup_theme', 'gi_theme_activation_check');
+
+/**
+ * ユーザーIPアドレス取得（セキュリティを考慮）
+ */
+if (!function_exists('gi_get_user_ip')) {
+    function gi_get_user_ip() {
+        // プロキシ経由の場合のIP取得順序
+        $ip_keys = [
+            'HTTP_CF_CONNECTING_IP',     // Cloudflare
+            'HTTP_CLIENT_IP',
+            'HTTP_X_FORWARDED_FOR',
+            'HTTP_X_FORWARDED',
+            'HTTP_X_CLUSTER_CLIENT_IP',
+            'HTTP_FORWARDED_FOR',
+            'HTTP_FORWARDED',
+            'REMOTE_ADDR'
+        ];
+        
+        foreach ($ip_keys as $key) {
+            if (array_key_exists($key, $_SERVER) === true) {
+                $ip_list = explode(',', $_SERVER[$key]);
+                foreach ($ip_list as $ip) {
+                    $ip = trim($ip);
+                    if (filter_var($ip, FILTER_VALIDATE_IP, 
+                        FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) !== false) {
+                        return $ip;
+                    }
+                }
+            }
+        }
+        
+        // フォールバック: プライベートIPも許可
+        foreach ($ip_keys as $key) {
+            if (array_key_exists($key, $_SERVER) === true) {
+                $ip_list = explode(',', $_SERVER[$key]);
+                foreach ($ip_list as $ip) {
+                    $ip = trim($ip);
+                    if (filter_var($ip, FILTER_VALIDATE_IP) !== false) {
+                        return $ip;
+                    }
+                }
+            }
+        }
+        
+        return 'unknown';
+    }
+}
 
 /**
  * エラーハンドリング用のグローバル関数
