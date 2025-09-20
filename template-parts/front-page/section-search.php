@@ -1213,7 +1213,7 @@ $nonce = wp_create_nonce('gi_ai_search_nonce');
 
         async fetchSuggestions(query) {
             const formData = new FormData();
-            formData.append('action', 'gi_get_search_suggestions');
+            formData.append('action', 'gi_ajax_get_search_suggestions');
             formData.append('nonce', CONFIG.NONCE);
             formData.append('query', query);
             formData.append('limit', '8');
@@ -1312,14 +1312,24 @@ $nonce = wp_create_nonce('gi_ai_search_nonce');
 
             this.state.isSearching = true;
             this.showLoading();
+            
+            // ユーザーコンテキストの収集
+            const userContext = this.collectUserContext();
 
             try {
                 const formData = new FormData();
-                formData.append('action', 'gi_ai_search');
+                formData.append('action', 'gi_load_grants');
                 formData.append('nonce', CONFIG.NONCE);
-                formData.append('query', query);
-                formData.append('filter', this.state.currentFilter);
+                formData.append('search', query);
+                formData.append('categories', JSON.stringify(this.state.currentFilter !== 'all' ? [this.state.currentFilter] : []));
                 formData.append('session_id', CONFIG.SESSION_ID);
+                formData.append('user_context', JSON.stringify(userContext));
+                formData.append('page', 1);
+                formData.append('posts_per_page', 12);
+                
+                // 検索履歴も送信
+                const searchHistory = this.getSearchHistory();
+                formData.append('search_history', JSON.stringify(searchHistory));
 
                 const response = await fetch(CONFIG.API_URL, {
                     method: 'POST',
@@ -1330,22 +1340,154 @@ $nonce = wp_create_nonce('gi_ai_search_nonce');
                 const data = await response.json();
 
                 if (data.success) {
-                    this.displayResults(data.data.grants);
-                    this.updateResultsCount(data.data.count);
+                    // 結果を表示（3-ajax-functions.phpの形式）
+                    const grants = data.data?.grants || [];
+                    const totalCount = data.data?.stats?.total_found || grants.length;
                     
-                    // Add AI response to chat
-                    if (data.data.ai_response) {
-                        this.addChatMessage(data.data.ai_response, 'ai');
+                    this.displayResults(grants);
+                    this.updateResultsCount(totalCount);
+                    
+                    // AI応答をチャットに追加
+                    const aiResponse = this.generateSearchResponse(query, grants.length);
+                    if (aiResponse) {
+                        this.addChatMessage(aiResponse, 'ai');
                     }
+                    
+                    // 検索改善提案があれば表示
+                    if (grants.length === 0) {
+                        this.showSearchImprovements(['より具体的なキーワードで検索してみてください', '複数のキーワードを試してみてください']);
+                    }
+                    
+                    // セッション情報を保存
+                    this.saveSearchSession({
+                        query: query,
+                        filter: this.state.currentFilter,
+                        results_count: totalCount,
+                        context: userContext
+                    });
+                    
+                    // 検索履歴を更新
+                    this.addToSearchHistory(query, totalCount);
+                    
                 } else {
-                    this.showError('検索エラーが発生しました');
+                    this.showError(data.data?.message || '検索エラーが発生しました');
                 }
             } catch (error) {
                 console.error('Search error:', error);
-                this.showError('通信エラーが発生しました');
+                this.showError('通信エラーが発生しました。ネットワーク接続を確認してください。');
             } finally {
                 this.state.isSearching = false;
                 this.hideLoading();
+            }
+        }
+        
+        // 検索応答生成
+        generateSearchResponse(query, count) {
+            if (count === 0) {
+                return `「${query}」に該当する補助金が見つかりませんでした。キーワードを変更して再度検索してみてください。`;
+            } else if (count === 1) {
+                return `「${query}」について1件の補助金が見つかりました。詳細をご確認ください。`;
+            } else {
+                return `「${query}」について${count}件の補助金が見つかりました。条件に合うものをお選びください。`;
+            }
+        }
+        
+        // ユーザーコンテキスト収集
+        collectUserContext() {
+            return {
+                timestamp: new Date().toISOString(),
+                current_filter: this.state.currentFilter,
+                previous_searches: this.getRecentSearches(5),
+                user_agent: navigator.userAgent,
+                screen_size: `${screen.width}x${screen.height}`,
+                language: navigator.language,
+                referrer: document.referrer
+            };
+        }
+        
+        // 検索履歴の取得
+        getSearchHistory() {
+            const history = localStorage.getItem('gi_search_history');
+            return history ? JSON.parse(history) : [];
+        }
+        
+        // 検索履歴への追加
+        addToSearchHistory(query, count) {
+            let history = this.getSearchHistory();
+            const entry = {
+                query: query,
+                count: count,
+                timestamp: Date.now(),
+                filter: this.state.currentFilter
+            };
+            
+            // 重複を除去
+            history = history.filter(h => h.query !== query);
+            history.unshift(entry);
+            
+            // 最新20件まで保持
+            history = history.slice(0, 20);
+            
+            localStorage.setItem('gi_search_history', JSON.stringify(history));
+        }
+        
+        // 最近の検索取得
+        getRecentSearches(limit = 5) {
+            return this.getSearchHistory().slice(0, limit).map(h => h.query);
+        }
+        
+        // 検索改善提案の表示
+        showSearchImprovements(improvements) {
+            if (!improvements || improvements.length === 0) return;
+            
+            const suggestionsContainer = document.createElement('div');
+            suggestionsContainer.className = 'search-improvements';
+            suggestionsContainer.innerHTML = `
+                <div class="improvement-header">💡 検索のヒント</div>
+                <ul class="improvement-list">
+                    ${improvements.map(tip => `<li>${tip}</li>`).join('')}
+                </ul>
+            `;
+            
+            // 検索バーの下に挿入
+            const searchBar = this.elements.searchInput.closest('.ai-search-bar');
+            const existingImprovements = searchBar.querySelector('.search-improvements');
+            if (existingImprovements) {
+                existingImprovements.remove();
+            }
+            searchBar.appendChild(suggestionsContainer);
+            
+            // 5秒後に自動的に隠す
+            setTimeout(() => {
+                suggestionsContainer.style.opacity = '0';
+                setTimeout(() => suggestionsContainer.remove(), 300);
+            }, 5000);
+        }
+        
+        // セッション保存
+        async saveSearchSession(sessionData) {
+            try {
+                const formData = new FormData();
+                formData.append('action', 'gi_save_search_session');
+                formData.append('nonce', CONFIG.NONCE);
+                formData.append('session_id', CONFIG.SESSION_ID);
+                formData.append('search_query', sessionData.query);
+                formData.append('filters_applied', JSON.stringify({
+                    filter: sessionData.filter
+                }));
+                formData.append('results_count', sessionData.results_count);
+                formData.append('user_interactions', JSON.stringify({
+                    search_time: Date.now(),
+                    context: sessionData.context
+                }));
+                
+                await fetch(CONFIG.API_URL, {
+                    method: 'POST',
+                    body: formData,
+                    credentials: 'same-origin'
+                });
+            } catch (error) {
+                console.warn('セッション保存に失敗:', error);
             }
         }
 
@@ -1358,7 +1500,15 @@ $nonce = wp_create_nonce('gi_ai_search_nonce');
                 return;
             }
 
-            container.innerHTML = grants.map(grant => this.createGrantCard(grant)).join('');
+            // 3-ajax-functions.phpからのデータ形式に対応
+            if (grants[0] && grants[0].html) {
+                // HTMLが既に生成されている場合（gi_ajax_load_grantsから）
+                container.innerHTML = grants.map(grant => grant.html).join('');
+            } else {
+                // 生データの場合は自前でカード生成
+                container.innerHTML = grants.map(grant => this.createGrantCard(grant)).join('');
+            }
+            
             this.animateCards();
         }
 
@@ -1419,7 +1569,7 @@ $nonce = wp_create_nonce('gi_ai_search_nonce');
             }
         }
 
-        // Chat Methods
+        // Chat Methods - Enhanced with real AI integration
         async sendChatMessage() {
             const message = this.elements.chatInput.value.trim();
             if (!message || this.state.isTyping) return;
@@ -1440,6 +1590,14 @@ $nonce = wp_create_nonce('gi_ai_search_nonce');
                 formData.append('nonce', CONFIG.NONCE);
                 formData.append('message', message);
                 formData.append('session_id', CONFIG.SESSION_ID);
+                
+                // 会話履歴も送信
+                const conversationHistory = this.getConversationHistory();
+                formData.append('conversation_history', JSON.stringify(conversationHistory));
+                
+                // ユーザーコンテキストを送信
+                const userContext = this.collectUserContext();
+                formData.append('user_context', JSON.stringify(userContext));
 
                 const response = await fetch(CONFIG.API_URL, {
                     method: 'POST',
@@ -1450,21 +1608,151 @@ $nonce = wp_create_nonce('gi_ai_search_nonce');
                 const data = await response.json();
 
                 if (data.success) {
-                    // Type AI response
-                    this.typeMessage(data.data.response);
+                    const responseData = data.data;
                     
-                    // Update search results if needed
-                    if (data.data.related_grants) {
-                        this.displayResults(data.data.related_grants);
+                    // Type AI response with enhanced formatting
+                    if (responseData.response) {
+                        await this.typeMessageEnhanced(responseData.response);
                     }
+                    
+                    // 関連補助金があれば検索結果に表示
+                    if (responseData.related_grants && responseData.related_grants.length > 0) {
+                        this.displayResults(responseData.related_grants);
+                        this.updateResultsCount(responseData.related_grants.length);
+                    }
+                    
+                    // 提案があれば表示
+                    if (responseData.suggestions && responseData.suggestions.length > 0) {
+                        this.displayChatSuggestions(responseData.suggestions);
+                    }
+                    
+                    // メッセージIDがあれば保存
+                    if (responseData.message_id) {
+                        this.saveChatMessage(message, responseData.response, responseData.message_id);
+                    }
+                    
                 } else {
-                    this.addChatMessage('申し訳ございません。エラーが発生しました。', 'ai');
+                    this.addChatMessage(data.data?.message || '申し訳ございません。一時的なエラーが発生しました。もう一度お試しください。', 'ai');
                 }
             } catch (error) {
                 console.error('Chat error:', error);
-                this.addChatMessage('通信エラーが発生しました。', 'ai');
+                this.addChatMessage('通信エラーが発生しました。ネットワーク接続を確認してください。', 'ai');
             } finally {
                 this.hideTyping();
+            }
+        }
+        
+        // 会話履歴取得
+        getConversationHistory() {
+            const messages = this.elements.chatMessages.querySelectorAll('.message');
+            const history = [];
+            
+            messages.forEach((message, index) => {
+                const isUser = message.classList.contains('message-user');
+                const text = message.querySelector('.message-bubble')?.textContent?.trim();
+                
+                if (text && history.length < 10) { // 最新10件まで
+                    history.push({
+                        role: isUser ? 'user' : 'assistant',
+                        content: text,
+                        timestamp: Date.now() - ((messages.length - index) * 1000)
+                    });
+                }
+            });
+            
+            return history.reverse(); // 時系列順に
+        }
+        
+        // 拡張されたタイピング表示
+        async typeMessageEnhanced(text) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message message-ai';
+            const bubble = document.createElement('div');
+            bubble.className = 'message-bubble';
+            messageDiv.appendChild(bubble);
+            
+            this.elements.chatMessages.appendChild(messageDiv);
+            
+            // Markdownライクな簡易フォーマット対応
+            const formattedText = this.formatAIResponse(text);
+            
+            let index = 0;
+            const typeChar = () => {
+                if (index < formattedText.length) {
+                    bubble.innerHTML = formattedText.substring(0, index + 1) + '<span class="typing-cursor">|</span>';
+                    index++;
+                    this.scrollChatToBottom();
+                    setTimeout(typeChar, CONFIG.TYPING_DELAY);
+                } else {
+                    bubble.innerHTML = formattedText;
+                }
+            };
+            
+            typeChar();
+        }
+        
+        // AI応答のフォーマット
+        formatAIResponse(text) {
+            return text
+                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') // **太字**
+                .replace(/\*(.*?)\*/g, '<em>$1</em>') // *斜体*
+                .replace(/`(.*?)`/g, '<code>$1</code>') // `コード`
+                .replace(/\n/g, '<br>'); // 改行
+        }
+        
+        // チャット提案の表示
+        displayChatSuggestions(suggestions) {
+            const existingSuggestions = this.elements.chatMessages.querySelector('.chat-suggestions');
+            if (existingSuggestions) {
+                existingSuggestions.remove();
+            }
+            
+            const suggestionsDiv = document.createElement('div');
+            suggestionsDiv.className = 'chat-suggestions';
+            suggestionsDiv.innerHTML = `
+                <div class="suggestions-label">💡 こちらもお試しください：</div>
+                <div class="suggestions-buttons">
+                    ${suggestions.map(suggestion => 
+                        `<button class="suggestion-btn" data-suggestion="${suggestion}">${suggestion}</button>`
+                    ).join('')}
+                </div>
+            `;
+            
+            // クリックイベントを追加
+            suggestionsDiv.querySelectorAll('.suggestion-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    this.elements.chatInput.value = btn.dataset.suggestion;
+                    this.autoResizeTextarea();
+                    this.sendChatMessage();
+                });
+            });
+            
+            this.elements.chatMessages.appendChild(suggestionsDiv);
+            this.scrollChatToBottom();
+        }
+        
+        // チャットメッセージの保存
+        async saveChatMessage(userMessage, aiResponse, messageId) {
+            try {
+                const history = localStorage.getItem('gi_chat_history');
+                const chatHistory = history ? JSON.parse(history) : [];
+                
+                const entry = {
+                    id: messageId,
+                    session_id: CONFIG.SESSION_ID,
+                    user_message: userMessage,
+                    ai_response: aiResponse,
+                    timestamp: Date.now()
+                };
+                
+                chatHistory.unshift(entry);
+                
+                // 最新50件まで保持
+                const limitedHistory = chatHistory.slice(0, 50);
+                
+                localStorage.setItem('gi_chat_history', JSON.stringify(limitedHistory));
+            } catch (error) {
+                console.warn('チャット履歴の保存に失敗:', error);
             }
         }
 
@@ -1851,48 +2139,23 @@ add_action('wp_ajax_nopriv_gi_save_search_session', 'gi_save_search_session');
 
 /**
  * 高度なAI検索処理（統合版）
+ * 既存のgi_ajax_load_grants関数に処理を委譲
  */
 function gi_handle_enhanced_ai_search() {
-    check_ajax_referer('gi_ai_search_nonce', 'nonce');
-    
-    $query = sanitize_text_field($_POST['query'] ?? '');
-    $filter = sanitize_text_field($_POST['filter'] ?? 'all');
-    $session_id = sanitize_text_field($_POST['session_id'] ?? '');
-    $user_context = json_decode(stripslashes($_POST['user_context'] ?? '{}'), true);
-    
-    // AIコンセルジュのインスタンス取得
-    if (class_exists('GI_AI_Concierge')) {
-        $ai_concierge = GI_AI_Concierge::getInstance();
-        
-        // セマンティック検索を実行
-        $semantic_results = $ai_concierge->perform_semantic_search($query, [
-            'filter' => $filter,
-            'user_context' => $user_context,
-            'session_id' => $session_id
-        ]);
-        
-        if ($semantic_results['success']) {
-            wp_send_json_success($semantic_results['data']);
-            return;
-        }
-    }
-    
-    // フォールバック: 従来の検索処理を使用
-    $search_params = [
-        'search' => $query,
-        'categories' => $filter !== 'all' ? [$filter] : [],
-        'nonce' => $_POST['nonce'],
-        'page' => 1,
-        'posts_per_page' => 12
-    ];
-    
-    // 既存のgi_ajax_load_grants関数を利用
-    $_POST = array_merge($_POST, $search_params);
-    
+    // 既存の関数が利用可能な場合はそれを使用
     if (function_exists('gi_ajax_load_grants')) {
+        // パラメータを3-ajax-functions.php形式に変換
+        if (isset($_POST['query'])) {
+            $_POST['search'] = $_POST['query'];
+        }
+        if (isset($_POST['filter']) && $_POST['filter'] !== 'all') {
+            $_POST['categories'] = json_encode([$_POST['filter']]);
+        }
+        
         gi_ajax_load_grants();
     } else {
-        gi_fallback_search($query, $filter);
+        // フォールバック処理
+        gi_fallback_search($_POST['query'] ?? '', $_POST['filter'] ?? 'all');
     }
 }
 
