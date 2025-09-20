@@ -969,7 +969,7 @@ class GI_AI_Concierge {
             wp_enqueue_script(
                 'gi-ai-concierge',
                 get_template_directory_uri() . '/assets/js/concierge.js',
-                ['jquery'],
+                ['jquery', 'gi-main'],
                 GI_THEME_VERSION,
                 true
             );

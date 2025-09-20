@@ -74,7 +74,7 @@ function gi_enhanced_mobile_optimizations() {
             wp_enqueue_script(
                 'gi-mobile-enhanced-js',
                 get_template_directory_uri() . '/assets/js/mobile-enhanced.js',
-                array('jquery'),
+                array('jquery', 'gi-main'),
                 GI_THEME_VERSION,
                 true
             );

@@ -412,7 +412,7 @@
                 message: message,
                 conversation_id: this.getConversationId(),
                 history: this.conversationHistory.slice(-this.config.maxHistoryLength),
-                nonce: window.gi_ajax_nonce || ''
+                nonce: window.gi_ajax_nonce || (window.gi_ajax && window.gi_ajax.nonce) || ''
             };
 
             const response = await fetch(this.config.apiEndpoint, {

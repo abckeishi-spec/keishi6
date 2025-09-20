@@ -87,6 +87,9 @@ function gi_enqueue_scripts() {
         'ajax_url' => admin_url('admin-ajax.php'),
         'nonce' => wp_create_nonce('gi_ajax_nonce')
     ));
+    
+    // グローバルnonceも設定（後方互換性）
+    wp_add_inline_script('gi-main', 'window.gi_ajax_nonce = "' . wp_create_nonce('gi_ajax_nonce') . '";', 'before');
 }
 add_action('wp_enqueue_scripts', 'gi_enqueue_scripts');
 

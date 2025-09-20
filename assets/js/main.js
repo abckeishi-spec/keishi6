@@ -133,6 +133,11 @@ const GrantInsight = {
     setupSearch() {
         const searchInputs = document.querySelectorAll('.gi-search-input, #grant-search');
         
+        if (searchInputs.length === 0) {
+            console.log('No search inputs found, skipping search setup');
+            return;
+        }
+        
         searchInputs.forEach(input => {
             // 検索入力のデバウンス処理
             const debouncedSearch = this.debounce((value) => {
@@ -177,7 +182,7 @@ const GrantInsight = {
             data: {
                 action: 'gi_search_grants',
                 query: query,
-                nonce: window.gi_ajax_nonce
+                nonce: window.gi_ajax_nonce || (window.gi_ajax && window.gi_ajax.nonce) || ''
             }
         }).then(response => {
             if (response.success) {
@@ -196,7 +201,7 @@ const GrantInsight = {
             data: {
                 action: 'gi_get_search_suggestions',
                 query: query,
-                nonce: window.gi_ajax_nonce
+                nonce: window.gi_ajax_nonce || (window.gi_ajax && window.gi_ajax.nonce) || ''
             }
         }).then(response => {
             if (response.success) {
@@ -280,6 +285,11 @@ const GrantInsight = {
     setupFilters() {
         // フィルターボタンのイベント
         const filterButtons = document.querySelectorAll('.gi-filter-chip, .filter-button');
+        
+        if (filterButtons.length === 0) {
+            console.log('No filter buttons found, skipping filter setup');
+            // フィルターボタンがない場合でも、他のイベントは設定する
+        }
         filterButtons.forEach(button => {
             button.addEventListener('click', () => {
                 this.toggleFilter(button);
@@ -348,7 +358,7 @@ const GrantInsight = {
             data: {
                 action: 'gi_filter_grants',
                 filters: filters,
-                nonce: window.gi_ajax_nonce
+                nonce: window.gi_ajax_nonce || (window.gi_ajax && window.gi_ajax.nonce) || ''
             }
         }).then(response => {
             if (response.success) {
@@ -770,7 +780,7 @@ const GrantInsight = {
                     data: {
                         action: 'gi_load_more_grants',
                         page: page,
-                        nonce: window.gi_ajax_nonce
+                        nonce: window.gi_ajax_nonce || (window.gi_ajax && window.gi_ajax.nonce) || ''
                     }
                 }).then(response => {
                     if (response.success && response.data.grants.length > 0) {
