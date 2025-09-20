@@ -362,6 +362,138 @@ $nonce = wp_create_nonce('gi_ai_search_nonce');
     color: #000;
 }
 
+.voice-btn.recording {
+    background: #ef4444;
+    color: #fff;
+    animation: pulse-recording 1s infinite;
+}
+
+@keyframes pulse-recording {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.1); }
+}
+
+/* Voice Status */
+.voice-status {
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    margin-top: 8px;
+    padding: 8px 16px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 500;
+    z-index: 100;
+    display: none;
+    white-space: nowrap;
+}
+
+.voice-status-recording {
+    background: #ef4444;
+    color: #fff;
+}
+
+.voice-status-processing {
+    background: #f59e0b;
+    color: #fff;
+}
+
+.voice-status-success {
+    background: #10b981;
+    color: #fff;
+}
+
+.voice-status-error {
+    background: #ef4444;
+    color: #fff;
+}
+
+.voice-status-waiting {
+    background: #6b7280;
+    color: #fff;
+}
+
+/* Search Improvements */
+.search-improvements {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    margin-top: 8px;
+    background: #fffbeb;
+    border: 1px solid #fbbf24;
+    border-radius: 8px;
+    padding: 12px;
+    font-size: 13px;
+    z-index: 10;
+    transition: opacity 0.3s;
+}
+
+.improvement-header {
+    font-weight: 600;
+    color: #d97706;
+    margin-bottom: 8px;
+}
+
+.improvement-list {
+    margin: 0;
+    padding-left: 20px;
+    color: #92400e;
+}
+
+.improvement-list li {
+    margin-bottom: 4px;
+}
+
+/* Chat Suggestions */
+.chat-suggestions {
+    margin-top: 12px;
+    padding: 12px;
+    background: #f8fafc;
+    border-radius: 12px;
+    border: 1px solid #e2e8f0;
+}
+
+.suggestions-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: #64748b;
+    margin-bottom: 8px;
+}
+
+.suggestions-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.suggestion-btn {
+    padding: 6px 12px;
+    background: #fff;
+    border: 1px solid #cbd5e1;
+    border-radius: 16px;
+    font-size: 11px;
+    color: #475569;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.suggestion-btn:hover {
+    background: #3b82f6;
+    color: #fff;
+    border-color: #3b82f6;
+}
+
+/* Typing Cursor */
+.typing-cursor {
+    animation: blink 1s infinite;
+}
+
+@keyframes blink {
+    0%, 50% { opacity: 1; }
+    51%, 100% { opacity: 0; }
+
 .search-btn {
     height: 44px;
     padding: 0 24px;
@@ -1060,7 +1192,7 @@ $nonce = wp_create_nonce('gi_ai_search_nonce');
             });
         }
 
-        // Search Methods
+        // Search Methods - Enhanced with real API integration
         async handleSearchInput(e) {
             const query = e.target.value.trim();
             
@@ -1069,23 +1201,71 @@ $nonce = wp_create_nonce('gi_ai_search_nonce');
                 return;
             }
 
-            // Get suggestions
-            const suggestions = await this.fetchSuggestions(query);
-            this.displaySuggestions(suggestions);
+            // リアルタイム検索候補を取得
+            try {
+                const suggestions = await this.fetchSuggestions(query);
+                this.displaySuggestions(suggestions);
+            } catch (error) {
+                console.warn('検索候補の取得に失敗:', error);
+                this.hideSuggestions();
+            }
         }
 
         async fetchSuggestions(query) {
-            // Simulate API call - replace with actual AJAX
-            const mockSuggestions = [
+            const formData = new FormData();
+            formData.append('action', 'gi_get_search_suggestions');
+            formData.append('nonce', CONFIG.NONCE);
+            formData.append('query', query);
+            formData.append('limit', '8');
+
+            const response = await fetch(CONFIG.API_URL, {
+                method: 'POST',
+                body: formData,
+                credentials: 'same-origin'
+            });
+
+            const data = await response.json();
+            
+            if (data.success && data.data) {
+                return data.data.map(item => ({
+                    icon: this.getIconForType(item.type),
+                    text: item.label || item.value,
+                    value: item.value,
+                    type: item.type,
+                    url: item.url,
+                    filter: item.filter
+                }));
+            }
+            
+            // フォールバック用のサジェスト
+            return this.getFallbackSuggestions(query);
+        }
+        
+        getIconForType(type) {
+            const icons = {
+                'grant': '📋',
+                'organization': '🏢', 
+                'grant_category': '📁',
+                'grant_prefecture': '📍',
+                'grant_tag': '🏷️'
+            };
+            return icons[type] || '🔍';
+        }
+        
+        getFallbackSuggestions(query) {
+            const fallbacks = [
                 { icon: '🏭', text: 'ものづくり補助金', type: 'grant' },
                 { icon: '💻', text: 'IT導入補助金', type: 'grant' },
                 { icon: '🏪', text: '小規模事業者持続化補助金', type: 'grant' },
                 { icon: '🔄', text: '事業再構築補助金', type: 'grant' },
+                { icon: '👥', text: '雇用調整助成金', type: 'grant' },
+                { icon: '🌱', text: '創業支援補助金', type: 'grant' }
             ];
-
-            return mockSuggestions.filter(s => 
-                s.text.toLowerCase().includes(query.toLowerCase())
-            );
+            
+            return fallbacks.filter(s => 
+                s.text.toLowerCase().includes(query.toLowerCase()) ||
+                query.toLowerCase().includes(s.text.toLowerCase())
+            ).slice(0, 5);
         }
 
         displaySuggestions(suggestions) {
@@ -1363,36 +1543,201 @@ $nonce = wp_create_nonce('gi_ai_search_nonce');
             }
         }
 
-        // Voice Input
-        startVoiceInput() {
-            if (!('webkitSpeechRecognition' in window)) {
-                alert('音声入力はこのブラウザではサポートされていません');
+        // Voice Input - Enhanced multi-browser support
+        async startVoiceInput() {
+            // ブラウザ対応チェック
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            
+            if (!SpeechRecognition) {
+                // フォールバック: サーバーサイド音声認識を試行
+                this.startServerSideVoiceRecognition();
                 return;
             }
 
-            const recognition = new webkitSpeechRecognition();
+            const recognition = new SpeechRecognition();
             recognition.lang = 'ja-JP';
-            recognition.interimResults = false;
+            recognition.interimResults = true;
+            recognition.continuous = false;
+            recognition.maxAlternatives = 3;
 
             recognition.onstart = () => {
                 this.elements.voiceBtn?.classList.add('recording');
+                this.showVoiceStatus('音声入力中...', 'recording');
             };
 
             recognition.onresult = (event) => {
-                const transcript = event.results[0][0].transcript;
-                this.elements.searchInput.value = transcript;
-                this.performSearch();
+                let finalTranscript = '';
+                let interimTranscript = '';
+                
+                for (let i = event.resultIndex; i < event.results.length; i++) {
+                    const transcript = event.results[i][0].transcript;
+                    
+                    if (event.results[i].isFinal) {
+                        finalTranscript += transcript;
+                    } else {
+                        interimTranscript += transcript;
+                    }
+                }
+                
+                // 中間結果をリアルタイム表示
+                if (interimTranscript) {
+                    this.elements.searchInput.value = finalTranscript + interimTranscript;
+                    this.showVoiceStatus('認識中: ' + interimTranscript, 'processing');
+                }
+                
+                // 最終結果で検索実行
+                if (finalTranscript) {
+                    this.elements.searchInput.value = finalTranscript;
+                    this.showVoiceStatus('認識完了', 'success');
+                    setTimeout(() => {
+                        this.performSearch();
+                    }, 500);
+                }
             };
 
-            recognition.onerror = () => {
-                alert('音声認識エラーが発生しました');
+            recognition.onerror = (event) => {
+                console.error('音声認識エラー:', event.error);
+                
+                let errorMessage = '音声認識エラーが発生しました';
+                switch (event.error) {
+                    case 'no-speech':
+                        errorMessage = '音声が検出されませんでした。もう一度お試しください。';
+                        break;
+                    case 'audio-capture':
+                        errorMessage = 'マイクにアクセスできません。ブラウザの設定を確認してください。';
+                        break;
+                    case 'not-allowed':
+                        errorMessage = 'マイクの使用が許可されていません。設定で許可してください。';
+                        break;
+                    case 'network':
+                        errorMessage = 'ネットワークエラーが発生しました。';
+                        break;
+                }
+                
+                this.showVoiceStatus(errorMessage, 'error');
             };
 
             recognition.onend = () => {
                 this.elements.voiceBtn?.classList.remove('recording');
+                setTimeout(() => {
+                    this.hideVoiceStatus();
+                }, 2000);
             };
 
-            recognition.start();
+            try {
+                recognition.start();
+            } catch (error) {
+                console.error('音声認識開始エラー:', error);
+                this.showVoiceStatus('音声入力を開始できませんでした', 'error');
+            }
+        }
+        
+        // サーバーサイド音声認識（フォールバック）
+        async startServerSideVoiceRecognition() {
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                this.showVoiceStatus('このブラウザは音声入力をサポートしていません', 'error');
+                return;
+            }
+            
+            try {
+                this.showVoiceStatus('マイクへのアクセスを許可してください', 'waiting');
+                
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                
+                this.showVoiceStatus('音声を録音中...', 'recording');
+                this.elements.voiceBtn?.classList.add('recording');
+                
+                // MediaRecorder を使用して音声を録音
+                const mediaRecorder = new MediaRecorder(stream);
+                const audioChunks = [];
+                
+                mediaRecorder.ondataavailable = (event) => {
+                    audioChunks.push(event.data);
+                };
+                
+                mediaRecorder.onstop = async () => {
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                    await this.sendAudioToServer(audioBlob);
+                    
+                    // ストリームを停止
+                    stream.getTracks().forEach(track => track.stop());
+                    
+                    this.elements.voiceBtn?.classList.remove('recording');
+                };
+                
+                mediaRecorder.start();
+                
+                // 5秒後に自動停止
+                setTimeout(() => {
+                    if (mediaRecorder.state === 'recording') {
+                        mediaRecorder.stop();
+                    }
+                }, 5000);
+                
+            } catch (error) {
+                console.error('音声録音エラー:', error);
+                this.showVoiceStatus('マイクにアクセスできませんでした', 'error');
+            }
+        }
+        
+        // サーバーに音声ファイルを送信
+        async sendAudioToServer(audioBlob) {
+            this.showVoiceStatus('音声を解析中...', 'processing');
+            
+            try {
+                const formData = new FormData();
+                formData.append('action', 'gi_voice_to_text');
+                formData.append('nonce', CONFIG.NONCE);
+                formData.append('audio', audioBlob, 'voice.wav');
+                formData.append('session_id', CONFIG.SESSION_ID);
+                
+                const response = await fetch(CONFIG.API_URL, {
+                    method: 'POST',
+                    body: formData,
+                    credentials: 'same-origin'
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    this.elements.searchInput.value = data.data.text;
+                    this.showVoiceStatus('音声認識完了', 'success');
+                    
+                    // 認識結果で検索を実行
+                    setTimeout(() => {
+                        this.performSearch();
+                    }, 500);
+                } else {
+                    this.showVoiceStatus('音声認識に失敗しました', 'error');
+                }
+                
+            } catch (error) {
+                console.error('音声送信エラー:', error);
+                this.showVoiceStatus('音声の送信に失敗しました', 'error');
+            }
+        }
+        
+        // 音声入力状態の表示
+        showVoiceStatus(message, type = 'info') {
+            let statusElement = document.querySelector('.voice-status');
+            
+            if (!statusElement) {
+                statusElement = document.createElement('div');
+                statusElement.className = 'voice-status';
+                this.elements.searchInput.parentNode.appendChild(statusElement);
+            }
+            
+            statusElement.className = `voice-status voice-status-${type}`;
+            statusElement.textContent = message;
+            statusElement.style.display = 'block';
+        }
+        
+        // 音声入力状態を隠す
+        hideVoiceStatus() {
+            const statusElement = document.querySelector('.voice-status');
+            if (statusElement) {
+                statusElement.style.display = 'none';
+            }
         }
 
         // Loading States
@@ -1494,24 +1839,188 @@ $nonce = wp_create_nonce('gi_ai_search_nonce');
 </script>
 
 <?php
-// AJAX Handler (functions.phpに追加が必要)
-add_action('wp_ajax_gi_ai_search', 'handle_ai_search');
-add_action('wp_ajax_nopriv_gi_ai_search', 'handle_ai_search');
-add_action('wp_ajax_gi_ai_chat', 'handle_ai_chat_request');
-add_action('wp_ajax_nopriv_gi_ai_chat', 'handle_ai_chat_request');
+// AJAX Handlers - 実際のAI機能と統合
+add_action('wp_ajax_gi_ai_search', 'gi_handle_enhanced_ai_search');
+add_action('wp_ajax_nopriv_gi_ai_search', 'gi_handle_enhanced_ai_search');
+add_action('wp_ajax_gi_ai_chat', 'gi_handle_real_ai_chat');
+add_action('wp_ajax_nopriv_gi_ai_chat', 'gi_handle_real_ai_chat');
+add_action('wp_ajax_gi_voice_to_text', 'gi_handle_voice_to_text');
+add_action('wp_ajax_nopriv_gi_voice_to_text', 'gi_handle_voice_to_text');
+add_action('wp_ajax_gi_save_search_session', 'gi_save_search_session');
+add_action('wp_ajax_nopriv_gi_save_search_session', 'gi_save_search_session');
 
-function handle_ai_search() {
+/**
+ * 高度なAI検索処理（統合版）
+ */
+function gi_handle_enhanced_ai_search() {
     check_ajax_referer('gi_ai_search_nonce', 'nonce');
     
     $query = sanitize_text_field($_POST['query'] ?? '');
     $filter = sanitize_text_field($_POST['filter'] ?? 'all');
+    $session_id = sanitize_text_field($_POST['session_id'] ?? '');
+    $user_context = json_decode(stripslashes($_POST['user_context'] ?? '{}'), true);
     
-    // 検索処理
+    // AIコンセルジュのインスタンス取得
+    if (class_exists('GI_AI_Concierge')) {
+        $ai_concierge = GI_AI_Concierge::getInstance();
+        
+        // セマンティック検索を実行
+        $semantic_results = $ai_concierge->perform_semantic_search($query, [
+            'filter' => $filter,
+            'user_context' => $user_context,
+            'session_id' => $session_id
+        ]);
+        
+        if ($semantic_results['success']) {
+            wp_send_json_success($semantic_results['data']);
+            return;
+        }
+    }
+    
+    // フォールバック: 従来の検索処理を使用
+    $search_params = [
+        'search' => $query,
+        'categories' => $filter !== 'all' ? [$filter] : [],
+        'nonce' => $_POST['nonce'],
+        'page' => 1,
+        'posts_per_page' => 12
+    ];
+    
+    // 既存のgi_ajax_load_grants関数を利用
+    $_POST = array_merge($_POST, $search_params);
+    
+    if (function_exists('gi_ajax_load_grants')) {
+        gi_ajax_load_grants();
+    } else {
+        gi_fallback_search($query, $filter);
+    }
+}
+
+/**
+ * 実際のAIチャット処理
+ */
+function gi_handle_real_ai_chat() {
+    check_ajax_referer('gi_ai_search_nonce', 'nonce');
+    
+    $message = sanitize_text_field($_POST['message'] ?? '');
+    $session_id = sanitize_text_field($_POST['session_id'] ?? '');
+    $conversation_history = json_decode(stripslashes($_POST['conversation_history'] ?? '[]'), true);
+    
+    if (empty($message)) {
+        wp_send_json_error('メッセージが空です');
+    }
+    
+    // AIコンセルジュでチャット処理
+    if (class_exists('GI_AI_Concierge')) {
+        $ai_concierge = GI_AI_Concierge::getInstance();
+        
+        $chat_result = $ai_concierge->process_chat_message([
+            'message' => $message,
+            'session_id' => $session_id,
+            'conversation_history' => $conversation_history,
+            'user_id' => get_current_user_id(),
+            'context' => [
+                'page' => 'search',
+                'timestamp' => current_time('c')
+            ]
+        ]);
+        
+        if ($chat_result['success']) {
+            wp_send_json_success($chat_result['data']);
+            return;
+        }
+    }
+    
+    // フォールバック: 基本的なキーワードベースの回答
+    $fallback_response = gi_generate_fallback_chat_response($message);
+    
+    wp_send_json_success([
+        'response' => $fallback_response['message'],
+        'related_grants' => $fallback_response['grants'],
+        'suggestions' => $fallback_response['suggestions'],
+        'session_id' => $session_id,
+        'message_id' => uniqid('msg_')
+    ]);
+}
+
+/**
+ * 音声テキスト変換処理
+ */
+function gi_handle_voice_to_text() {
+    check_ajax_referer('gi_ai_search_nonce', 'nonce');
+    
+    if (!isset($_FILES['audio']) || $_FILES['audio']['error'] !== UPLOAD_ERR_OK) {
+        wp_send_json_error('音声ファイルのアップロードに失敗しました');
+    }
+    
+    // 音声認識API（OpenAI Whisper等）を使用
+    if (class_exists('GI_AI_Concierge')) {
+        $ai_concierge = GI_AI_Concierge::getInstance();
+        
+        $transcription = $ai_concierge->transcribe_audio($_FILES['audio']);
+        
+        if ($transcription['success']) {
+            wp_send_json_success([
+                'text' => $transcription['text'],
+                'confidence' => $transcription['confidence'] ?? 0.95
+            ]);
+            return;
+        }
+    }
+    
+    wp_send_json_error('音声認識に失敗しました。もう一度お試しください。');
+}
+
+/**
+ * 検索セッションの保存
+ */
+function gi_save_search_session() {
+    check_ajax_referer('gi_ai_search_nonce', 'nonce');
+    
+    $session_data = [
+        'session_id' => sanitize_text_field($_POST['session_id'] ?? ''),
+        'search_query' => sanitize_text_field($_POST['search_query'] ?? ''),
+        'filters_applied' => json_decode(stripslashes($_POST['filters_applied'] ?? '{}'), true),
+        'results_count' => intval($_POST['results_count'] ?? 0),
+        'user_interactions' => json_decode(stripslashes($_POST['user_interactions'] ?? '[]'), true),
+        'timestamp' => current_time('c'),
+        'user_id' => get_current_user_id(),
+        'ip_address' => gi_get_user_ip()
+    ];
+    
+    // データベースに保存
+    global $wpdb;
+    $table_name = $wpdb->prefix . 'gi_search_sessions';
+    
+    $result = $wpdb->insert(
+        $table_name,
+        [
+            'session_id' => $session_data['session_id'],
+            'user_id' => $session_data['user_id'],
+            'search_data' => json_encode($session_data),
+            'created_at' => current_time('mysql')
+        ],
+        ['%s', '%d', '%s', '%s']
+    );
+    
+    if ($result !== false) {
+        wp_send_json_success(['message' => 'セッションが保存されました']);
+    } else {
+        wp_send_json_error('セッションの保存に失敗しました');
+    }
+}
+
+/**
+ * フォールバック検索処理
+ */
+function gi_fallback_search($query, $filter) {
     $args = [
         'post_type' => 'grant',
         's' => $query,
         'posts_per_page' => 12,
-        'post_status' => 'publish'
+        'post_status' => 'publish',
+        'orderby' => 'relevance',
+        'order' => 'DESC'
     ];
     
     if ($filter !== 'all') {
@@ -1522,44 +2031,183 @@ function handle_ai_search() {
         ]];
     }
     
-    $query = new WP_Query($args);
+    $wp_query = new WP_Query($args);
     $grants = [];
     
-    if ($query->have_posts()) {
-        while ($query->have_posts()) {
-            $query->the_post();
+    if ($wp_query->have_posts()) {
+        while ($wp_query->have_posts()) {
+            $wp_query->the_post();
+            $post_id = get_the_ID();
+            
             $grants[] = [
-                'id' => get_the_ID(),
+                'id' => $post_id,
                 'title' => get_the_title(),
                 'permalink' => get_permalink(),
-                'amount' => get_post_meta(get_the_ID(), 'max_amount', true),
-                'deadline' => get_post_meta(get_the_ID(), 'deadline', true),
-                'organization' => get_post_meta(get_the_ID(), 'organization', true),
-                'success_rate' => get_post_meta(get_the_ID(), 'grant_success_rate', true),
-                'featured' => get_post_meta(get_the_ID(), 'is_featured', true)
+                'excerpt' => get_the_excerpt(),
+                'amount' => get_post_meta($post_id, 'max_amount', true),
+                'deadline' => get_post_meta($post_id, 'deadline', true),
+                'organization' => get_post_meta($post_id, 'organization', true),
+                'success_rate' => get_post_meta($post_id, 'grant_success_rate', true),
+                'featured' => get_post_meta($post_id, 'is_featured', true),
+                'html' => function_exists('gi_render_card_unified') ? 
+                         gi_render_card_unified($post_id, 'grid') : ''
             ];
         }
         wp_reset_postdata();
     }
     
+    $ai_response = gi_generate_search_response($query, count($grants));
+    
     wp_send_json_success([
         'grants' => $grants,
-        'count' => $query->found_posts,
-        'ai_response' => $query->found_posts . '件の補助金が見つかりました。'
+        'count' => $wp_query->found_posts,
+        'ai_response' => $ai_response,
+        'suggestions' => gi_generate_search_suggestions($query),
+        'search_improvements' => gi_analyze_search_query($query)
     ]);
 }
 
-function handle_ai_chat_request() {
-    check_ajax_referer('gi_ai_search_nonce', 'nonce');
+/**
+ * フォールバックチャット応答生成
+ */
+function gi_generate_fallback_chat_response($message) {
+    $message_lower = strtolower($message);
     
-    $message = sanitize_text_field($_POST['message'] ?? '');
+    // キーワードベースの応答パターン
+    $response_patterns = [
+        'IT' => [
+            'message' => 'IT関連の補助金をお探しですね。IT導入補助金や小規模事業者持続化補助金などがおすすめです。',
+            'keywords' => ['it', 'システム', 'デジタル', 'ソフトウェア']
+        ],
+        'ものづくり' => [
+            'message' => 'ものづくり関連でしたら、ものづくり補助金が最適です。設備投資や技術開発に活用できます。',
+            'keywords' => ['ものづくり', '製造', '設備', '機械']
+        ],
+        '創業' => [
+            'message' => '創業支援の補助金ですね。創業支援補助金や小規模事業者持続化補助金をご検討ください。',
+            'keywords' => ['創業', '起業', '開業', 'スタートアップ']
+        ],
+        '雇用' => [
+            'message' => '雇用関連の支援制度については、雇用調整助成金や人材確保等支援助成金があります。',
+            'keywords' => ['雇用', '採用', '人材', '労働']
+        ]
+    ];
     
-    // AI処理のシミュレーション
-    $response = "ご質問ありがとうございます。「{$message}」について、最適な補助金をお探しします。";
+    $matched_response = null;
+    foreach ($response_patterns as $category => $pattern) {
+        foreach ($pattern['keywords'] as $keyword) {
+            if (strpos($message_lower, $keyword) !== false) {
+                $matched_response = $pattern['message'];
+                break 2;
+            }
+        }
+    }
     
-    wp_send_json_success([
-        'response' => $response,
-        'related_grants' => []
-    ]);
+    if (!$matched_response) {
+        $matched_response = "「{$message}」についてお調べします。より具体的な業種や目的をお教えいただけると、より適切な補助金をご提案できます。";
+    }
+    
+    // 関連する補助金を検索
+    $related_grants = [];
+    if (function_exists('gi_ajax_load_grants')) {
+        $search_args = [
+            'post_type' => 'grant',
+            's' => $message,
+            'posts_per_page' => 3,
+            'post_status' => 'publish'
+        ];
+        
+        $query = new WP_Query($search_args);
+        if ($query->have_posts()) {
+            while ($query->have_posts()) {
+                $query->the_post();
+                $related_grants[] = [
+                    'id' => get_the_ID(),
+                    'title' => get_the_title(),
+                    'permalink' => get_permalink()
+                ];
+            }
+            wp_reset_postdata();
+        }
+    }
+    
+    return [
+        'message' => $matched_response,
+        'grants' => $related_grants,
+        'suggestions' => [
+            '申請の流れを教えて',
+            '必要書類は何ですか？',
+            '採択率の高い補助金は？',
+            '締切が近い補助金を教えて'
+        ]
+    ];
+}
+
+/**
+ * 検索応答の生成
+ */
+function gi_generate_search_response($query, $count) {
+    if ($count === 0) {
+        return "「{$query}」に該当する補助金が見つかりませんでした。キーワードを変更して再度検索してみてください。";
+    } elseif ($count === 1) {
+        return "「{$query}」について1件の補助金が見つかりました。詳細をご確認ください。";
+    } else {
+        return "「{$query}」について{$count}件の補助金が見つかりました。条件に合うものをお選びください。";
+    }
+}
+
+/**
+ * 検索提案の生成
+ */
+function gi_generate_search_suggestions($query) {
+    $base_suggestions = [
+        $query . ' 申請方法',
+        $query . ' 必要書類',
+        $query . ' 採択率',
+        $query . ' 締切'
+    ];
+    
+    // よく検索される関連キーワード
+    $popular_terms = ['IT導入', 'ものづくり', '持続化', '事業再構築', '雇用調整'];
+    
+    return array_merge($base_suggestions, array_slice($popular_terms, 0, 3));
+}
+
+/**
+ * 検索クエリの分析
+ */
+function gi_analyze_search_query($query) {
+    $improvements = [];
+    
+    if (strlen($query) < 3) {
+        $improvements[] = 'より具体的なキーワードで検索してみてください';
+    }
+    
+    if (!preg_match('/[ぁ-んァ-ヶ一-龠]/u', $query)) {
+        $improvements[] = '日本語のキーワードも試してみてください';
+    }
+    
+    return $improvements;
+}
+
+/**
+ * ユーザーIP取得
+ */
+function gi_get_user_ip() {
+    $ip_fields = ['HTTP_X_FORWARDED_FOR', 'HTTP_X_REAL_IP', 'HTTP_CLIENT_IP', 'REMOTE_ADDR'];
+    
+    foreach ($ip_fields as $field) {
+        if (!empty($_SERVER[$field])) {
+            $ip = $_SERVER[$field];
+            if (strpos($ip, ',') !== false) {
+                $ip = trim(explode(',', $ip)[0]);
+            }
+            if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
+                return $ip;
+            }
+        }
+    }
+    
+    return $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
 }
 ?>
