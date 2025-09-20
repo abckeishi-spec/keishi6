@@ -759,10 +759,23 @@
         <div class="gi-header-main">
             <!-- Logo -->
             <a href="<?php echo esc_url(home_url('/')); ?>" class="gi-logo">
-                <img src="http://joseikin-insight.com/wp-content/uploads/2025/09/名称未設定のデザイン.png" 
+                <?php 
+                $logo_url = gi_get_logo_url(false);
+                if (!$logo_url) {
+                    // Fallback to theme customizer logo or default
+                    $custom_logo_id = get_theme_mod('custom_logo');
+                    if ($custom_logo_id) {
+                        $logo_url = wp_get_attachment_image_url($custom_logo_id, 'full');
+                    } else {
+                        $logo_url = get_template_directory_uri() . '/assets/images/logo.png';
+                    }
+                }
+                ?>
+                <img src="<?php echo esc_url($logo_url); ?>" 
                      alt="<?php bloginfo('name'); ?>" 
                      class="gi-logo-image"
-                     loading="eager">
+                     loading="eager"
+                     onerror="this.src='<?php echo esc_url(get_template_directory_uri() . '/assets/images/placeholder-logo.png'); ?>'">
                 
                 <div class="gi-logo-text">
                     <h1><?php bloginfo('name'); ?></h1>
@@ -825,7 +838,12 @@
                 <!-- Stats Display -->
                 <div class="gi-stats">
                     <?php
-                    $stats = gi_get_cached_stats();
+                    $stats = false;
+                    if (function_exists('gi_get_cached_stats')) {
+                        $stats = gi_get_cached_stats();
+                    } elseif (function_exists('gi_get_search_stats')) {
+                        $stats = gi_get_search_stats();
+                    }
                     if ($stats && !empty($stats['total_grants'])) {
                         echo '<div class="gi-stat-item">';
                         echo '<i class="fas fa-database"></i>';

@@ -19,8 +19,13 @@ $post_id = get_the_ID();
 $grant_amount = gi_safe_get_meta($post_id, 'grant_amount', 0);
 $success_rate = gi_safe_get_meta($post_id, 'grant_success_rate', 0);
 $difficulty = gi_safe_get_meta($post_id, 'grant_difficulty', 'normal');
-$prefecture = gi_get_prefecture_name($post_id);
-$category = gi_get_category_name($post_id);
+// 都道府県情報を取得
+$prefecture_terms = get_the_terms($post_id, 'grant_prefecture');
+$prefecture = (!empty($prefecture_terms) && !is_wp_error($prefecture_terms)) ? $prefecture_terms[0]->name : '';
+
+// カテゴリー情報を取得  
+$category_terms = get_the_terms($post_id, 'grant_category');
+$category = (!empty($category_terms) && !is_wp_error($category_terms)) ? $category_terms[0]->name : '';
 $application_status = gi_safe_get_meta($post_id, 'application_status', 'closed');
 $deadline = gi_safe_get_meta($post_id, 'application_deadline', '');
 
@@ -120,7 +125,7 @@ if ($success_rate >= 70) {
         <!-- 金額表示 -->
         <?php if ($grant_amount > 0): ?>
         <div class="grant-card-amount text-base font-bold text-emerald-600 mb-2">
-            💰 <?php echo gi_format_amount($grant_amount); ?>
+            💰 <?php echo gi_format_amount_unified($grant_amount); ?>
         </div>
         <?php else: ?>
         <div class="grant-card-amount text-base font-bold text-gray-500 mb-2">
